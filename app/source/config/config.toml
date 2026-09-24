@@ -76,9 +76,13 @@ effort      = "low"              # 小さな判断なので低 effort
 api_key_env = "ANTHROPIC_API_KEY"
 
 [llm.planner]
-model      = "claude-opus-5"
+model      = ""                  # 空なら [llm.<provider>] の model を使う
 max_tokens = 4000
-effort     = "high"              # 説明・計画は高 effort
+effort     = "high"              # 説明・計画は高 effort（claude のみ使う）
+# 提供元は [decision.modes.*] の planner で決まる（claude / openai_compat / offline）。
+# claude 以外を使う場合、接続先とキーをここで指定する（空なら [llm.<provider>] を使う）
+base_url    = ""
+api_key_env = ""
 
 [llm.openai_compat]
 base_url    = "http://localhost:11434/v1"   # Ollama 等

@@ -4,12 +4,13 @@ Decision Engine が下した判断結果（noul/choice/score）を、人間向�
 説明・計画（日本語 Markdown）へ変換する。判断そのものは行わない
 （続ける／どれ／何点、を決めるのは decision/ 側の役割）。
 
-- make_plan          : Claude API で計画文を生成。使えなければオフライン文面。
+- make_plan          : LLM（運用方針の planner が指す提供元）で計画文を生成。使えなければオフライン文面。
 - parse_activity_text : 自然文の作業報告を Activity（layer=REPORTED, source=MANUAL）へ構造化。
 - render_offline_plan : LLM 無しで state と判断結果から Markdown を組み立てる。
 
-標準ライブラリのみを使用し、`anthropic` は関数内で遅延 import する。
-互いの内部実装には依存せず、contracts/ config.py timeutil.py のみを import する。
+LLM を1回呼び出す実処理（提供元ごとの分岐）は planner/llm_client.py に持たせる。
+標準ライブラリのみを使用し、`anthropic` は llm_client.py 側で関数内遅延 import する。
+互いの内部実装には依存せず、contracts/ config.py timeutil.py llm_client.py のみを import する。
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from contextflow.contracts.models import (
     CurrentState,
     Source,
 )
+from contextflow.planner import llm_client
 from contextflow.timeutil import fmt_minutes, parse_hhmm, today
 
 # ---------------------------------------------------------------------------
@@ -194,14 +196,23 @@ class Planner:
         self._config = config
         self._mode_name = mode
 
-    def _uses_llm(self) -> bool:
-        """運用方針（decision.mode）が Planner に LLM を使う設定かどうか。"""
+    def _planner_provider(self) -> str | None:
+        """運用方針（decision.mode）から Planner の提供元（llm_client.call_llm の provider）を取り出す。
+
+        運用方針が解決できない、または planner="offline" のときは None
+        （呼び出し側は None を「LLMを使わない」の合図として扱う）。
+        """
         from contextflow.config import resolve_mode
 
         try:
-            return resolve_mode(self._config, self._mode_name).uses_llm_planner
+            mode = resolve_mode(self._config, self._mode_name)
         except ValueError:
-            return False
+            return None
+        return mode.planner if mode.uses_llm_planner else None
+
+    def _uses_llm(self) -> bool:
+        """運用方針（decision.mode）が Planner に LLM を使う設定かどうか。"""
+        return self._planner_provider() is not None
 
     def make_plan(self, state: CurrentState, decisions: DecisionResponse) -> str:
         """判断結果を日本語の短い計画文（Markdown）にする。
@@ -211,7 +222,8 @@ class Planner:
         運用方針が planner="offline" のとき、および LLM が使えないときは
         render_offline_plan の結果を返す。
         """
-        if not self._uses_llm():
+        provider = self._planner_provider()
+        if provider is None:
             return render_offline_plan(state, decisions)
         payload = {
             "state": _safe_state_payload(state),
@@ -220,10 +232,12 @@ class Planner:
                 for key, answer in decisions.answers.items()
             },
         }
-        text = self._call_claude(
+        text = llm_client.call_llm(
+            self._config,
+            provider,
             system_prompt=_PLAN_SYSTEM_PROMPT,
             user_content=json.dumps(payload, ensure_ascii=False),
-            model=str(self._config.get("llm.planner.model", "claude-opus-5")),
+            model=llm_client.resolve_model(self._config, provider),
             max_tokens=int(self._config.get("llm.planner.max_tokens", 4000)),
             effort=str(self._config.get("llm.planner.effort", "high")),
         )
@@ -234,14 +248,20 @@ class Planner:
 
         例:「13時から45分、AI活用案件についてAさんと相談した」。
         時刻は base_date（既定は今日）を基準に解釈する。
-        LLM が使えない／出力が不正な場合は None を返す（例外にしない）。
+        運用方針が planner="offline" のとき、および LLM が使えない／出力が不正な場合は
+        None を返す（例外にしない）。
         """
-        raw = self._call_claude(
+        provider = self._planner_provider()
+        if provider is None:
+            return None
+        raw = llm_client.call_llm(
+            self._config,
+            provider,
             system_prompt=_PARSE_SYSTEM_PROMPT,
             user_content=text,
-            model=str(self._config.get("llm.claude.model", "claude-opus-5")),
-            max_tokens=int(self._config.get("llm.claude.max_tokens", 2000)),
-            effort=str(self._config.get("llm.claude.effort", "low")),
+            model=llm_client.resolve_model(self._config, provider),
+            max_tokens=int(self._config.get("llm.planner.max_tokens", 4000)),
+            effort=str(self._config.get("llm.planner.effort", "high")),
             json_schema=_ACTIVITY_TEXT_SCHEMA,
         )
         if not raw:
@@ -264,64 +284,6 @@ class Planner:
             )
         except Exception:
             # JSON不正・キー欠落・型不一致などは None（例外にしない）
-            return None
-
-    def _call_claude(
-        self,
-        *,
-        system_prompt: str,
-        user_content: str,
-        model: str,
-        max_tokens: int,
-        effort: str,
-        json_schema: dict[str, Any] | None = None,
-    ) -> str | None:
-        """Claude API を1回呼び出しテキストを返す共通処理。
-
-        SDK未インストール／APIキー無し／通信失敗など、理由を問わず失敗時は None を返す
-        （呼び出し側はオフラインの代替処理へフォールバックする）。
-        """
-        # APIキーの判定を import より先に行う。SDK は環境変数やログイン済みプロファイルから
-        # 独自に資格情報を解決するため、ここで止めないと Decision Engine 側
-        # （キー未設定なら呼ばない）と挙動が食い違い、意図しない課金につながる
-        api_key = self._config.secret("llm.claude.api_key_env")
-        if not api_key:
-            return None
-
-        try:
-            import anthropic  # 遅延 import（未インストールでも起動時に落とさない）
-
-            client = anthropic.Anthropic(api_key=api_key)
-            output_config: dict[str, Any] = {"effort": effort}
-            if json_schema is not None:
-                output_config["format"] = {"type": "json_schema", "schema": json_schema}
-            response = client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_content}],
-                output_config=output_config,
-            )
-            # stop_reason を確認せずテキストへ進むと、max_tokens 打ち切りの
-            # 断片や refusal を正常応答として扱ってしまう。ここで先に弾く
-            # （最終的には呼び出し元へ None を返すだけだが、原因を明確に
-            # RuntimeError にしてから握りつぶすことで意図を残す）。
-            if response.stop_reason == "max_tokens":
-                raise RuntimeError(
-                    "Claudeの応答がmax_tokensで打ち切られた。"
-                    "config の llm.claude.max_tokens を増やすこと。"
-                )
-            if response.stop_reason == "refusal":
-                stop_details = getattr(response, "stop_details", None)
-                category = stop_details.category if stop_details is not None else None
-                raise RuntimeError(
-                    f"Claudeが応答を拒否した（refusal, category={category}）。"
-                )
-            text = "".join(
-                block.text for block in response.content if block.type == "text"
-            )
-            return text or None
-        except Exception:
             return None
 
 

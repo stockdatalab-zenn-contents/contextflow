@@ -10,9 +10,16 @@ llm_first / jev_first を試す際は、AppConfig の data に敢えて
 `config.secret("llm.claude.api_key_env")` は必ず None を返す
 （api_key_env そのものが未設定なら、実行環境の ANTHROPIC_API_KEY の
 有無に関係なく参照されない）。さらに念のため、Claude Planner 経路
-（Planner._call_claude は api_key 判定より先に `import anthropic` する
+（llm_client._call_claude は api_key 判定より先に `import anthropic` する
 ため上と同じ保証が効かない）だけは `sys.modules["anthropic"] = None`
 で import 自体を失敗させ、二重に安全側へ倒す。
+
+planner="claude" が実際に呼ばれる場合を確認するテストでは、
+`sys.modules["anthropic"]` へ偽モジュール（MagicMock）を差し込み、
+`urllib.request.urlopen` は使われないことを確認する。
+planner="openai_compat" を確認するテストでは逆に `urllib.request.urlopen`
+をモックし、`anthropic` は `sys.modules["anthropic"] = None` で
+import させないことで、意図した提供元だけが呼ばれることを保証する。
 
 設定は実ファイル（app/source/config/config.toml）を読んでよいが、
 decision.engine などを試す箇所は AppConfig のインスタンスを作って
@@ -21,6 +28,7 @@ data を書き換える形にし、実ファイルは絶対に書き換えない
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -404,6 +412,238 @@ class AppConfigSecretFileTests(unittest.TestCase):
             self.assertEqual(config.secret("llm.jev.api_key_env"), "jev-value")
             self.assertEqual(config.secret("llm.openai_compat.api_key_env"), "openai-value")
             self.assertEqual(config.secret("github.token_env"), "ghp-value")
+
+
+# ---------------------------------------------------------------------------
+# Planner の提供元切り替え（llm_client 経由）の単体テスト。
+# 実際の通信は一切行わず、anthropic は sys.modules へ偽モジュール、
+# openai_compat 側は urllib.request.urlopen をモックして確認する。
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_anthropic_module(response_text: str, calls: list) -> mock.MagicMock:
+    """`anthropic.Anthropic(...).messages.create(...)` を模した偽モジュール。
+
+    呼び出し時の kwargs を calls へ記録し、常に response_text を含む応答を返す。
+    """
+    response = mock.MagicMock()
+    response.stop_reason = "end_turn"
+    response.content = [mock.MagicMock(type="text", text=response_text)]
+
+    def _create(**kwargs):
+        calls.append(kwargs)
+        return response
+
+    fake_client = mock.MagicMock()
+    fake_client.messages.create.side_effect = _create
+
+    fake_module = mock.MagicMock()
+    fake_module.Anthropic.return_value = fake_client
+    return fake_module
+
+
+def _openai_compat_response_body(content: str) -> bytes:
+    """{base_url}/chat/completions の応答本体（JSON）を組み立てる。"""
+    return json.dumps({"choices": [{"message": {"content": content}}]}).encode("utf-8")
+
+
+class PlannerClaudeProviderTests(unittest.TestCase):
+    """make_plan: planner="claude" かつキー有りのとき anthropic SDK が呼ばれること。"""
+
+    def test_calls_anthropic_sdk_when_key_present(self) -> None:
+        config = AppConfig(
+            data={
+                "decision": {"mode": "llm_first"},
+                "llm": {"claude": {"model": "claude-opus-5", "api_key_env": "ANTHROPIC_API_KEY"}},
+            }
+        )
+        planner = Planner(config)
+        state = _minimal_state()
+        decisions = _minimal_decisions()
+
+        calls: list = []
+        fake_module = _make_fake_anthropic_module("# 計画\n- ダミー", calls)
+
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-dummy"}), mock.patch.dict(
+            sys.modules, {"anthropic": fake_module}
+        ), mock.patch("urllib.request.urlopen", side_effect=AssertionError("network access attempted")):
+            text = planner.make_plan(state, decisions)
+
+        self.assertEqual(text, "# 計画\n- ダミー")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["model"], "claude-opus-5")
+        fake_module.Anthropic.assert_called_once_with(api_key="sk-ant-dummy")
+
+
+class PlannerOpenAICompatProviderTests(unittest.TestCase):
+    """make_plan: planner="openai_compat" のとき {base_url}/chat/completions へ POST されること。"""
+
+    def _config(self, *, planner_base_url: str = "") -> AppConfig:
+        llm: dict = {"openai_compat": {"model": "qwen2.5:14b", "base_url": "http://localhost:11434/v1", "api_key_env": "OPENAI_API_KEY"}}
+        if planner_base_url:
+            llm["planner"] = {"base_url": planner_base_url}
+        return AppConfig(
+            data={
+                "decision": {
+                    "mode": "custom_openai",
+                    "modes": {
+                        "custom_openai": {"engines": ["rule_based"], "planner": "openai_compat"},
+                    },
+                },
+                "llm": llm,
+            }
+        )
+
+    def test_posts_to_chat_completions_with_auth_header(self) -> None:
+        config = self._config()
+        planner = Planner(config)
+        state = _minimal_state()
+        decisions = _minimal_decisions()
+        body = _openai_compat_response_body("# 計画\n- openai_compat")
+
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-oc-dummy"}), mock.patch(
+            "urllib.request.urlopen"
+        ) as mock_urlopen, mock.patch.dict(sys.modules, {"anthropic": None}):
+            mock_urlopen.return_value.__enter__.return_value.read.return_value = body
+            text = planner.make_plan(state, decisions)
+
+        self.assertEqual(text, "# 計画\n- openai_compat")
+        self.assertEqual(mock_urlopen.call_count, 1)
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://localhost:11434/v1/chat/completions")
+        self.assertEqual(request.get_header("Authorization"), "Bearer sk-oc-dummy")
+
+    def test_base_url_prefers_llm_planner_over_llm_openai_compat(self) -> None:
+        # [llm.planner] base_url が指定されていれば、そちらが [llm.openai_compat] base_url より優先される
+        config = self._config(planner_base_url="http://planner-host:9999/v1")
+        planner = Planner(config)
+        state = _minimal_state()
+        decisions = _minimal_decisions()
+        body = _openai_compat_response_body("# 計画\n- planner-host")
+
+        with mock.patch.dict(os.environ, {}, clear=False), mock.patch(
+            "urllib.request.urlopen"
+        ) as mock_urlopen, mock.patch.dict(sys.modules, {"anthropic": None}):
+            mock_urlopen.return_value.__enter__.return_value.read.return_value = body
+            planner.make_plan(state, decisions)
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://planner-host:9999/v1/chat/completions")
+
+
+class ParseActivityTextProviderTests(unittest.TestCase):
+    """parse_activity_text: 運用方針の planner に応じて提供元が切り替わること。"""
+
+    def test_follows_openai_compat_provider(self) -> None:
+        config = AppConfig(
+            data={
+                "decision": {
+                    "mode": "custom_openai",
+                    "modes": {"custom_openai": {"engines": ["rule_based"], "planner": "openai_compat"}},
+                },
+                "llm": {"openai_compat": {"model": "qwen2.5:14b", "base_url": "http://localhost:11434/v1"}},
+            }
+        )
+        planner = Planner(config)
+
+        payload = {
+            "start": "13:00",
+            "end": "13:45",
+            "activity_type": "meeting",
+            "project": None,
+            "task": None,
+            "summary": "打ち合わせ",
+        }
+        body = _openai_compat_response_body(json.dumps(payload, ensure_ascii=False))
+
+        with mock.patch("urllib.request.urlopen") as mock_urlopen, mock.patch.dict(
+            sys.modules, {"anthropic": None}
+        ):
+            mock_urlopen.return_value.__enter__.return_value.read.return_value = body
+            activity = planner.parse_activity_text(
+                "13時から45分、打ち合わせをした", base_date=date(2026, 9, 23)
+            )
+
+        self.assertIsNotNone(activity)
+        self.assertEqual(activity.summary, "打ち合わせ")
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://localhost:11434/v1/chat/completions")
+
+    def test_offline_mode_returns_none_without_network(self) -> None:
+        config = AppConfig(data={"decision": {"mode": "rule_first"}})
+        planner = Planner(config)
+
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=AssertionError("network access attempted")
+        ), mock.patch.dict(sys.modules, {"anthropic": None}):
+            activity = planner.parse_activity_text("13時から45分、打ち合わせをした")
+
+        self.assertIsNone(activity)
+
+
+class ResolveModeUnknownPlannerTests(unittest.TestCase):
+    """load_modes / resolve_mode: 未知の planner は ValueError（黙って claude へ流さない）。"""
+
+    def _config_with_unknown_planner(self) -> AppConfig:
+        return AppConfig(
+            data={
+                "decision": {
+                    "mode": "gpt_mode",
+                    "modes": {"gpt_mode": {"engines": ["rule_based"], "planner": "gpt"}},
+                },
+            }
+        )
+
+    def test_load_modes_raises_with_choices(self) -> None:
+        config = self._config_with_unknown_planner()
+        with self.assertRaises(ValueError) as ctx:
+            load_modes(config)
+        message = str(ctx.exception)
+        self.assertIn("gpt", message)
+        for provider in ("offline", "claude", "openai_compat"):
+            self.assertIn(provider, message)
+
+    def test_resolve_mode_raises_too(self) -> None:
+        config = self._config_with_unknown_planner()
+        with self.assertRaises(ValueError):
+            resolve_mode(config)
+
+    def test_planner_falls_back_to_offline_instead_of_calling_claude(self) -> None:
+        # Planner 側は resolve_mode の ValueError を捕まえてオフラインへ倒す（claudeは呼ばない）
+        config = self._config_with_unknown_planner()
+        planner = Planner(config)
+        state = _minimal_state()
+        decisions = _minimal_decisions()
+
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=AssertionError("network access attempted")
+        ), mock.patch.dict(sys.modules, {"anthropic": None}):
+            text = planner.make_plan(state, decisions)
+
+        self.assertEqual(text, render_offline_plan(state, decisions))
+
+
+class UsesLlmPlannerProviderTests(unittest.TestCase):
+    """ModeConfig.uses_llm_planner: offline=False / claude=True / openai_compat=True。"""
+
+    def test_offline_is_false(self) -> None:
+        config = AppConfig(data={"decision": {"mode": "rule_first"}})
+        self.assertFalse(resolve_mode(config).uses_llm_planner)
+
+    def test_claude_is_true(self) -> None:
+        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        self.assertTrue(resolve_mode(config).uses_llm_planner)
+
+    def test_openai_compat_is_true(self) -> None:
+        config = AppConfig(
+            data={
+                "decision": {
+                    "mode": "custom_openai",
+                    "modes": {"custom_openai": {"engines": ["rule_based"], "planner": "openai_compat"}},
+                },
+            }
+        )
+        self.assertTrue(resolve_mode(config).uses_llm_planner)
 
 
 if __name__ == "__main__":

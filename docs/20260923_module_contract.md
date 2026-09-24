@@ -436,13 +436,15 @@ upcoming_items, upcoming_deadlines
 ## config.py（運用方針）
 
 ```python
+PLANNER_PROVIDERS: frozenset[str]   # {"offline", "claude", "openai_compat"}
+
 @dataclass
 class ModeConfig:
     name: str
     description: str
     engines: list[str]      # 左から順に試し、失敗したら次へ退避
-    planner: str            # "claude" | "offline"
-    @property uses_llm_planner -> bool
+    planner: str            # PLANNER_PROVIDERS のいずれか（"offline" | "claude" | "openai_compat"）
+    @property uses_llm_planner -> bool   # planner が "offline" 以外の既知の提供元かどうか
 
 DEFAULT_MODES: dict[str, ModeConfig]
 def load_modes(config: AppConfig) -> dict[str, ModeConfig]
@@ -451,6 +453,8 @@ def resolve_mode(config: AppConfig, name: str | None = None) -> ModeConfig
 
 優先順位は 引数 > `decision.mode` > `rule_first`。
 `decision.engine` が非空のときは、そのエンジンを先頭に置いた一時的な方針を返す（末尾に `rule_based`）。
+`load_modes`（および内部で呼ぶ `resolve_mode`）は `planner` が `PLANNER_PROVIDERS` に無い値のとき
+`ValueError` にする（未知の提供元を黙って `claude` へ流さないため）。
 
 ## decision/registry.py
 
@@ -543,6 +547,35 @@ def render_offline_plan(state: CurrentState, decisions: DecisionResponse) -> str
 ```
 
 LLM が使えないときは `render_offline_plan` の文面を返す（例外にしない）。
+提供元は `resolve_mode(config, mode).planner`（`offline` なら LLM を呼ばない）。
+実際の1回呼び出しは `planner/llm_client.py` の `call_llm` に委譲する
+（`make_plan` / `parse_activity_text` の両方が同じ経路を通る）。
+
+## planner/llm_client.py
+
+```python
+def call_llm(
+    config: AppConfig,
+    provider: str,                       # "claude" | "openai_compat"（それ以外は ValueError）
+    *,
+    system_prompt: str,
+    user_content: str,
+    model: str,
+    max_tokens: int,
+    effort: str,                         # "claude" のときだけ使う
+    json_schema: dict[str, Any] | None = None,
+) -> str | None
+```
+
+LLMを1回呼び出しテキストを返す共通窓口。`decision/adapters/` と同じ発想で
+提供元ごとに実装を分ける（`claude` は anthropic SDK を関数内で遅延 import、
+`openai_compat` は `urllib.request` のみで `{base_url}/chat/completions` を叩く）。
+
+失敗時は理由を問わず `None`（SDK未導入／APIキー無し／通信失敗／応答が壊れている、等）。
+接続情報（`base_url` / `api_key_env`）は `[llm.planner]` を優先し、無ければ
+`[llm.<provider>]` へ落とす。`openai_compat` 経路の `json_schema` は
+`response_format={"type":"json_object"}` を付けるだけで、フィールドの型までは強制しない
+（型を厳密に強制したい場合は `claude` の structured outputs を使うこと）。
 
 ## report/daily_markdown.py
 

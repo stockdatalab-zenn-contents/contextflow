@@ -133,7 +133,10 @@ replacement = '<mail>'
 | --- | --- |
 | `description` | 説明。`app/cf.py mode` に表示される |
 | `engines` | 判断エンジンを左から順に試す。失敗したら次へ退避する |
-| `planner` | 人間向けの説明・計画を誰が書くか。`claude` か `offline` |
+| `planner` | 人間向けの説明・計画を誰が書くか。`offline` / `claude` / `openai_compat`（`PLANNER_PROVIDERS`）のいずれか |
+
+`planner` に上記以外の値を書くと、`load_modes` / `resolve_mode` が
+**その場で `ValueError`** になる（未知の提供元を黙って `claude` へ流さないため）。
 
 ```toml
 [decision.modes.jev_first]
@@ -156,17 +159,39 @@ planner     = "claude"
 `decision.engine` に値を入れると、`mode` より優先して単一エンジンを使う
 （この場合も末尾に `rule_based` が自動で足される）。`--engine` オプションも同じ扱い。
 
-### [llm.claude] / [llm.planner]
+### [llm.claude]
+
+判断（Decision Engine、`decision/adapters/claude_api.py`）が使う接続情報。
 
 | キー | 既定値 | 内容 |
 | --- | --- | --- |
 | `model` | `claude-opus-5` | モデルID。日付サフィックスは付けない |
-| `max_tokens` | `2000` / `4000` | 出力上限 |
-| `effort` | `low` / `high` | 判断は低 effort、計画生成は高 effort |
+| `max_tokens` | `2000` | 出力上限 |
+| `effort` | `low` | 判断は分類に近い小さな問いなので低 effort |
 | `api_key_env` | `ANTHROPIC_API_KEY` | APIキーを読む環境変数名 |
 
-判断（Decision Engine）は分類に近い小さな問いなので `low`、
-計画・説明の生成は `high` を既定にしている。
+### [llm.planner]
+
+計画生成（Planner、`planner/planner.py` + `planner/llm_client.py`）が使う設定。
+**提供元（claude / openai_compat）は `[decision.modes.*] planner` で決まる**
+（このセクションでは選べない）。`max_tokens` / `effort` はここだけを見る
+（`effort` は `claude` のときだけ使う）。
+
+| キー | 既定値 | 内容 |
+| --- | --- | --- |
+| `model` | `""` | モデルID。空なら `[llm.<provider>]` の値を使う |
+| `max_tokens` | `4000` | 出力上限。計画文は判断より長くなるため多め |
+| `effort` | `high` | 説明・計画は高 effort（`claude` のみ使う） |
+| `base_url` | `""` | `claude` 以外を使うときの接続先。空なら `[llm.<provider>]` の値を使う |
+| `api_key_env` | `""` | 同上。APIキーを読む環境変数名。空なら `[llm.<provider>]` の値を使う |
+
+`model` / `base_url` / `api_key_env` の解決順は「`[llm.planner]` → `[llm.<provider>]`」。
+`model` を空のままにしておくと、提供元を切り替えたときにモデル名も自動で追従する。
+ここを Claude 用の値で固定すると、OpenAI互換の接続先へ `claude-opus-5` のような
+無効なモデル名を送ってしまう。**解決できない場合は通信せず、オフライン生成へ退避する。**
+
+例えば `planner = "openai_compat"` で `[llm.planner] base_url` が空なら
+`[llm.openai_compat] base_url` を使う。
 
 ### [llm.openai_compat]
 

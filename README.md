@@ -47,6 +47,15 @@ mode = "rule_first"   # rule_first | llm_first | jev_first
 一時的に試すだけなら `python app/cf.py decide --mode llm_first` のように上書きできる。
 
 各方針の中身（エンジンの並び・Planner の担当）は `[decision.modes.*]` で調整可能。
+**判断も計画も提供元を差し替えられる。**
+
+| 役割 | 選べる値 |
+| --- | --- |
+| 判断エンジン（`engines`） | `rule_based`（ローカル）/ `claude` / `openai_compat` / `jev` |
+| 計画（`planner`） | `offline`（LLM なし）/ `claude` / `openai_compat` |
+
+`openai_compat` は OpenAI 互換の `chat/completions` を話す接続先なら何でも使える
+（ローカルの Ollama、社内や外部のゲートウェイなど）。未知の値を書くとエラーになる。
 
 ### 4. LLM を使う場合（`llm_first` / `jev_first` のとき）
 
@@ -67,6 +76,22 @@ notepad .env   # 必要な行のコメント（#）を外し、値を入れる
 
 `.env` は Git に入らない（`.gitignore` で除外済み）。置き場所を変えたい場合は
 `config.toml` の `[paths] secrets_file` を書き換える。
+
+Claude 以外（OpenAI 互換の接続先）を使う場合は、接続先とキー名も設定する。
+
+```toml
+[decision.modes.llm_first]
+engines = ["openai_compat", "rule_based"]   # 判断
+planner = "openai_compat"                   # 計画
+
+[llm.openai_compat]
+base_url    = "http://localhost:11434/v1"
+model       = "qwen2.5:14b"
+api_key_env = "OPENAI_API_KEY"              # .env に書くキー名
+```
+
+計画側だけ別の接続先にしたい場合は `[llm.planner]` の `base_url` / `api_key_env` を埋める
+（空なら `[llm.openai_compat]` を使う）。
 
 キーが無くても落ちない。使えないエンジンは警告を出して次へ退避する。
 

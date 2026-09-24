@@ -130,6 +130,11 @@ def _read_secrets_file(path: Path) -> dict[str, str]:
     return result
 
 
+# [decision.modes.*] の planner に書ける値。未知の値は load_modes / resolve_mode で弾く
+# （黙って Claude へ流さないため。ModeConfig.uses_llm_planner の判定にも使う）
+PLANNER_PROVIDERS = frozenset({"offline", "claude", "openai_compat"})
+
+
 @dataclass
 class ModeConfig:
     """運用方針。判断エンジンの並びと、Planner の担当を1組にしたもの。"""
@@ -137,11 +142,12 @@ class ModeConfig:
     name: str
     description: str = ""
     engines: list[str] = field(default_factory=lambda: ["rule_based"])
-    planner: str = "offline"  # "claude" か "offline"
+    planner: str = "offline"  # "offline" / "claude" / "openai_compat"（PLANNER_PROVIDERS）
 
     @property
     def uses_llm_planner(self) -> bool:
-        return self.planner != "offline"
+        """LLM を使う既知の提供元かどうか（"offline" 以外の PLANNER_PROVIDERS）。"""
+        return self.planner in (PLANNER_PROVIDERS - {"offline"})
 
 
 # config.toml に [decision.modes.*] が無い場合の既定値
@@ -175,11 +181,16 @@ def load_modes(config: AppConfig) -> dict[str, ModeConfig]:
     modes: dict[str, ModeConfig] = {}
     for name, body in raw.items():
         engines = [str(e) for e in body.get("engines", []) if str(e)]
+        planner = str(body.get("planner", "offline"))
+        if planner not in PLANNER_PROVIDERS:
+            # 未知の planner を黙って claude へ流さない（意図しない課金を防ぐ）
+            available = " / ".join(sorted(PLANNER_PROVIDERS))
+            raise ValueError(f"未知の planner: {planner}（使える値: {available}）")
         modes[name] = ModeConfig(
             name=name,
             description=str(body.get("description", "")),
             engines=engines or ["rule_based"],
-            planner=str(body.get("planner", "offline")),
+            planner=planner,
         )
     return modes
 
