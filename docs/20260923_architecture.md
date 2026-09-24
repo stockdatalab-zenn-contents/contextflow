@@ -275,12 +275,12 @@ LLM には文章を書かせず、JSON だけ返させる（＝賢い if 文と�
 
 ### 6.3 運用方針（mode）とエンジンの退避チェーン
 
-どの Adapter を使うかは、config の `[decision] mode` 1行で切り替える。
+どの Adapter を使うかは、config の `[policy] mode` 1行で切り替える。
 
 ```
 mode = "jev_first"
         ↓
-[decision.modes.jev_first] engines = ["jev", "claude", "rule_based"]
+[policy.modes.jev_first] engines = ["jev", "claude", "rule_based"]
         ↓
    jev を試す ── 失敗（APIキー無し・通信不可）
         ↓ 警告を出して退避

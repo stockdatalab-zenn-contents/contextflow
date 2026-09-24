@@ -141,12 +141,12 @@ class ResolveModePriorityTests(unittest.TestCase):
     """resolve_mode: 引数 > config の decision.mode > 既定 rule_first。"""
 
     def test_argument_wins_over_config(self):
-        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        config = AppConfig(data={"policy": {"mode": "llm_first"}})
         mode = resolve_mode(config, "jev_first")
         self.assertEqual(mode.name, "jev_first")
 
     def test_config_mode_used_when_no_argument(self):
-        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        config = AppConfig(data={"policy": {"mode": "llm_first"}})
         mode = resolve_mode(config)
         self.assertEqual(mode.name, "llm_first")
 
@@ -173,17 +173,17 @@ class ResolveModeEngineOverrideTests(unittest.TestCase):
     """resolve_mode: decision.engine が非空のとき先頭に来て末尾が rule_based になること。"""
 
     def test_engine_override_is_prepended_and_ends_with_rule_based(self):
-        config = AppConfig(data={"decision": {"mode": "rule_first", "engine": "claude"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}, "decision": {"engine": "claude"}})
         mode = resolve_mode(config)
         self.assertEqual(mode.engines, ["claude", "rule_based"])
 
     def test_engine_override_rule_based_is_not_duplicated(self):
-        config = AppConfig(data={"decision": {"mode": "rule_first", "engine": "rule_based"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}, "decision": {"engine": "rule_based"}})
         mode = resolve_mode(config)
         self.assertEqual(mode.engines, ["rule_based"])
 
     def test_explicit_mode_argument_ignores_engine_override(self):
-        config = AppConfig(data={"decision": {"mode": "rule_first", "engine": "claude"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}, "decision": {"engine": "claude"}})
         mode = resolve_mode(config, "rule_first")
         self.assertEqual(mode.name, "rule_first")
         self.assertEqual(mode.engines, ["rule_based"])
@@ -203,14 +203,14 @@ class CreateEngineChainTests(unittest.TestCase):
     """
 
     def test_rule_first_returns_rule_based_engine_directly(self):
-        config = AppConfig(data={"decision": {"mode": "rule_first"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}})
         engine = create_engine_chain(config)
         self.assertIsInstance(engine, RuleBasedEngine)
         self.assertNotIsInstance(engine, FallbackEngine)
 
     def test_llm_first_falls_back_to_rule_based(self):
         # [llm] セクションを与えないため api_key_env が未設定 = api_key は常に None
-        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        config = AppConfig(data={"policy": {"mode": "llm_first"}})
         chain = create_engine_chain(config)
         self.assertIsInstance(chain, FallbackEngine)
         with mock.patch.dict(sys.modules, {"anthropic": None}):
@@ -218,7 +218,7 @@ class CreateEngineChainTests(unittest.TestCase):
         self.assertEqual(response.engine, "rule_based")
 
     def test_jev_first_falls_back_to_rule_based(self):
-        config = AppConfig(data={"decision": {"mode": "jev_first"}})
+        config = AppConfig(data={"policy": {"mode": "jev_first"}})
         chain = create_engine_chain(config)
         self.assertIsInstance(chain, FallbackEngine)
         with mock.patch.dict(sys.modules, {"anthropic": None}):
@@ -264,7 +264,7 @@ class PlannerOfflineFallbackTests(unittest.TestCase):
     """
 
     def test_rule_first_matches_render_offline_plan(self):
-        config = AppConfig(data={"decision": {"mode": "rule_first"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}})
         planner = Planner(config)
         state = _minimal_state()
         decisions = _minimal_decisions()
@@ -274,7 +274,7 @@ class PlannerOfflineFallbackTests(unittest.TestCase):
         self.assertEqual(text, expected)
 
     def test_llm_first_without_api_key_falls_back_to_offline_text(self):
-        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        config = AppConfig(data={"policy": {"mode": "llm_first"}})
         planner = Planner(config)
         state = _minimal_state()
         decisions = _minimal_decisions()
@@ -453,7 +453,7 @@ class PlannerClaudeProviderTests(unittest.TestCase):
     def test_calls_anthropic_sdk_when_key_present(self) -> None:
         config = AppConfig(
             data={
-                "decision": {"mode": "llm_first"},
+                "policy": {"mode": "llm_first"},
                 "llm": {"claude": {"model": "claude-opus-5", "api_key_env": "ANTHROPIC_API_KEY"}},
             }
         )
@@ -484,7 +484,7 @@ class PlannerOpenAICompatProviderTests(unittest.TestCase):
             llm["planner"] = {"base_url": planner_base_url}
         return AppConfig(
             data={
-                "decision": {
+                "policy": {
                     "mode": "custom_openai",
                     "modes": {
                         "custom_openai": {"engines": ["rule_based"], "planner": "openai_compat"},
@@ -537,7 +537,7 @@ class ParseActivityTextProviderTests(unittest.TestCase):
     def test_follows_openai_compat_provider(self) -> None:
         config = AppConfig(
             data={
-                "decision": {
+                "policy": {
                     "mode": "custom_openai",
                     "modes": {"custom_openai": {"engines": ["rule_based"], "planner": "openai_compat"}},
                 },
@@ -570,7 +570,7 @@ class ParseActivityTextProviderTests(unittest.TestCase):
         self.assertEqual(request.full_url, "http://localhost:11434/v1/chat/completions")
 
     def test_offline_mode_returns_none_without_network(self) -> None:
-        config = AppConfig(data={"decision": {"mode": "rule_first"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}})
         planner = Planner(config)
 
         with mock.patch(
@@ -581,13 +581,52 @@ class ParseActivityTextProviderTests(unittest.TestCase):
         self.assertIsNone(activity)
 
 
+class MovedConfigKeyTests(unittest.TestCase):
+    """運用方針の設定を [decision] から [policy] へ移した件の回帰テスト。
+
+    互換読み替えはしない。ただし黙って既定へ戻すと書き換え漏れに気づけないため、
+    旧キーが書かれていたら ValueError で知らせる。
+    """
+
+    def test_old_mode_key_raises(self) -> None:
+        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        with self.assertRaises(ValueError) as ctx:
+            resolve_mode(config)
+        self.assertIn("[policy] mode", str(ctx.exception))
+
+    def test_old_modes_key_raises(self) -> None:
+        config = AppConfig(data={"decision": {"modes": {"x": {}}}})
+        with self.assertRaises(ValueError) as ctx:
+            load_modes(config)
+        self.assertIn("[policy] modes", str(ctx.exception))
+
+    def test_new_keys_work(self) -> None:
+        config = AppConfig(
+            data={
+                "policy": {
+                    "mode": "custom",
+                    "modes": {"custom": {"engines": ["rule_based"], "planner": "offline"}},
+                }
+            }
+        )
+        self.assertEqual(resolve_mode(config).name, "custom")
+
+    def test_decision_keeps_its_own_settings(self) -> None:
+        """[decision] に残した判断固有のキーは、そのまま読めること。"""
+        config = AppConfig(
+            data={"policy": {"mode": "rule_first"}, "decision": {"confidence_threshold": 0.9}}
+        )
+        self.assertEqual(resolve_mode(config).name, "rule_first")
+        self.assertEqual(config.get("decision.confidence_threshold"), 0.9)
+
+
 class ResolveModeUnknownPlannerTests(unittest.TestCase):
     """load_modes / resolve_mode: 未知の planner は ValueError（黙って claude へ流さない）。"""
 
     def _config_with_unknown_planner(self) -> AppConfig:
         return AppConfig(
             data={
-                "decision": {
+                "policy": {
                     "mode": "gpt_mode",
                     "modes": {"gpt_mode": {"engines": ["rule_based"], "planner": "gpt"}},
                 },
@@ -627,17 +666,17 @@ class UsesLlmPlannerProviderTests(unittest.TestCase):
     """ModeConfig.uses_llm_planner: offline=False / claude=True / openai_compat=True。"""
 
     def test_offline_is_false(self) -> None:
-        config = AppConfig(data={"decision": {"mode": "rule_first"}})
+        config = AppConfig(data={"policy": {"mode": "rule_first"}})
         self.assertFalse(resolve_mode(config).uses_llm_planner)
 
     def test_claude_is_true(self) -> None:
-        config = AppConfig(data={"decision": {"mode": "llm_first"}})
+        config = AppConfig(data={"policy": {"mode": "llm_first"}})
         self.assertTrue(resolve_mode(config).uses_llm_planner)
 
     def test_openai_compat_is_true(self) -> None:
         config = AppConfig(
             data={
-                "decision": {
+                "policy": {
                     "mode": "custom_openai",
                     "modes": {"custom_openai": {"engines": ["rule_based"], "planner": "openai_compat"}},
                 },

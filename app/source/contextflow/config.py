@@ -130,7 +130,7 @@ def _read_secrets_file(path: Path) -> dict[str, str]:
     return result
 
 
-# [decision.modes.*] の planner に書ける値。未知の値は load_modes / resolve_mode で弾く
+# [policy.modes.*] の planner に書ける値。未知の値は load_modes / resolve_mode で弾く
 # （黙って Claude へ流さないため。ModeConfig.uses_llm_planner の判定にも使う）
 PLANNER_PROVIDERS = frozenset({"offline", "claude", "openai_compat"})
 
@@ -150,7 +150,7 @@ class ModeConfig:
         return self.planner in (PLANNER_PROVIDERS - {"offline"})
 
 
-# config.toml に [decision.modes.*] が無い場合の既定値
+# config.toml に [policy.modes.*] が無い場合の既定値
 DEFAULT_MODES: dict[str, ModeConfig] = {
     "rule_first": ModeConfig(
         name="rule_first",
@@ -173,9 +173,32 @@ DEFAULT_MODES: dict[str, ModeConfig] = {
 }
 
 
+# 旧キー → 新キー。読み替えはせず、書かれていたらエラーで知らせる
+_MOVED_KEYS = {
+    "decision.mode": "policy.mode",
+    "decision.modes": "policy.modes",
+}
+
+
+def _reject_moved_keys(config: AppConfig) -> None:
+    """移動した旧キーが書かれていたら、はっきり落とす。
+
+    黙って既定値へ戻すと、書き換え漏れに気づけないまま
+    意図と違う運用方針で動いてしまうため（互換読み替えはしない）。
+    """
+    for old_key, new_key in _MOVED_KEYS.items():
+        if config.get(old_key) is not None:
+            raise ValueError(
+                f"[{old_key.split('.')[0]}] {old_key.split('.')[1]} は "
+                f"[{new_key.split('.')[0]}] {new_key.split('.')[1]} へ移動した。"
+                "config.toml を修正する"
+            )
+
+
 def load_modes(config: AppConfig) -> dict[str, ModeConfig]:
-    """config の [decision.modes.*] を ModeConfig へ変換する。"""
-    raw = config.get("decision.modes") or {}
+    """config の [policy.modes.*] を ModeConfig へ変換する。"""
+    _reject_moved_keys(config)
+    raw = config.get("policy.modes") or {}
     if not isinstance(raw, dict) or not raw:
         return dict(DEFAULT_MODES)
     modes: dict[str, ModeConfig] = {}
@@ -203,7 +226,8 @@ def resolve_mode(config: AppConfig, name: Optional[str] = None) -> ModeConfig:
     （最後は必ず rule_based へ退避し、判断が止まらないようにする）。
     """
     modes = load_modes(config)
-    selected = name or config.get("decision.mode") or "rule_first"
+    _reject_moved_keys(config)
+    selected = name or config.get("policy.mode") or "rule_first"
     if selected not in modes:
         available = " / ".join(sorted(modes))
         raise ValueError(f"未知の運用方針: {selected}（選択肢: {available}）")

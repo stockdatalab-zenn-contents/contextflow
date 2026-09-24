@@ -451,7 +451,7 @@ def load_modes(config: AppConfig) -> dict[str, ModeConfig]
 def resolve_mode(config: AppConfig, name: str | None = None) -> ModeConfig
 ```
 
-優先順位は 引数 > `decision.mode` > `rule_first`。
+優先順位は 引数 > `policy.mode` > `rule_first`。
 `decision.engine` が非空のときは、そのエンジンを先頭に置いた一時的な方針を返す（末尾に `rule_based`）。
 `load_modes`（および内部で呼ぶ `resolve_mode`）は `planner` が `PLANNER_PROVIDERS` に無い値のとき
 `ValueError` にする（未知の提供元を黙って `claude` へ流さないため）。

@@ -30,10 +30,10 @@ python app/cf.py init
 
 ### 3. 運用方針を選ぶ
 
-`app/source/config/config.toml` の `[decision] mode` **1行**で切り替わる。
+`app/source/config/config.toml` の `[policy] mode` **1行**で切り替わる。
 
 ```toml
-[decision]
+[policy]
 mode = "rule_first"   # rule_first | llm_first | jev_first
 ```
 
@@ -46,7 +46,7 @@ mode = "rule_first"   # rule_first | llm_first | jev_first
 現在の選択は `python app/cf.py mode` で確認できる。
 一時的に試すだけなら `python app/cf.py decide --mode llm_first` のように上書きできる。
 
-各方針の中身（エンジンの並び・Planner の担当）は `[decision.modes.*]` で調整可能。
+各方針の中身（エンジンの並び・Planner の担当）は `[policy.modes.*]` で調整可能。
 **判断も計画も提供元を差し替えられる。**
 
 | 役割 | 選べる値 |
@@ -80,7 +80,7 @@ notepad .env   # 必要な行のコメント（#）を外し、値を入れる
 Claude 以外（OpenAI 互換の接続先）を使う場合は、接続先とキー名も設定する。
 
 ```toml
-[decision.modes.llm_first]
+[policy.modes.llm_first]
 engines = ["openai_compat", "rule_based"]   # 判断
 planner = "openai_compat"                   # 計画
 

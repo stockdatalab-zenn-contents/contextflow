@@ -114,18 +114,30 @@ replacement = '<mail>'
 未来を混ぜると当日の時間集計が壊れるため。`past` を日ごとに読むのは、ある日は確定・別の日は
 観測という混在を正しく扱うため。
 
-### [decision]
+### [policy]
+
+運用方針。判断（`decide`）と計画（`plan`）の組み合わせを、この1行で切り替える。
 
 | キー | 既定値 | 内容 |
 | --- | --- | --- |
 | `mode` | `rule_first` | 運用方針。`rule_first` / `llm_first` / `jev_first` |
+
+**運用方針の切り替えはこの `mode` 1行**。現在の選択は `python app/cf.py mode` で確認できる。
+方針ごとの中身（判断エンジンの並び・Planner の担当）は `[policy.modes.*]` にある。
+
+### [decision]
+
+判断（`decide`）だけの設定。運用方針（`mode`）は `[policy]` にある。
+`[policy.modes.*]` は判断エンジンの並びだけでなく Planner（計画）の担当も持ち、
+判断固有の設定ではないため、`[decision]` とは分けている。
+
+| キー | 既定値 | 内容 |
+| --- | --- | --- |
 | `engine` | `""` | 単一エンジンを直接指定したいときだけ使う（`mode` より優先） |
 | `confidence_threshold` | `0.7` | 校正後 confidence がこれ未満なら保留扱い |
 | `question_set` | `next_action` | 既定で使う質問セット名 |
 
-**運用方針の切り替えはこの `mode` 1行**。現在の選択は `python app/cf.py mode` で確認できる。
-
-### [decision.modes.*]
+### [policy.modes.*]
 
 方針ごとに「判断エンジンの並び」と「Planner の担当」を持つ。
 
@@ -139,7 +151,7 @@ replacement = '<mail>'
 **その場で `ValueError`** になる（未知の提供元を黙って `claude` へ流さないため）。
 
 ```toml
-[decision.modes.jev_first]
+[policy.modes.jev_first]
 description = "Jev で小さな判断、LLM は説明・計画"
 engines     = ["jev", "claude", "rule_based"]
 planner     = "claude"
@@ -173,7 +185,7 @@ planner     = "claude"
 ### [llm.planner]
 
 計画生成（Planner、`planner/planner.py` + `planner/llm_client.py`）が使う設定。
-**提供元（claude / openai_compat）は `[decision.modes.*] planner` で決まる**
+**提供元（claude / openai_compat）は `[policy.modes.*] planner` で決まる**
 （このセクションでは選べない）。`max_tokens` / `effort` はここだけを見る
 （`effort` は `claude` のときだけ使う）。
 

@@ -42,9 +42,13 @@ context_switch_min_sec = 60   # 60秒以上の滞在をスイッチ1回と数え
 past_days     = 7   # 過去何日ぶんの傾向を見るか（対象日は含まない）
 upcoming_days = 7   # 今後何日ぶんの予定・締切を見るか
 
+[policy]
+# 運用方針。ここ1行を書き換えるだけで、判断（decide）と計画（plan）の組み合わせが切り替わる。
+# 判断だけの設定は [decision] にある
+mode = "rule_first"   # rule_first | llm_first | jev_first
+
 [decision]
-# 運用方針。ここ1行を書き換えるだけで、判断エンジンと Planner の組み合わせが切り替わる
-mode                 = "rule_first"  # rule_first | llm_first | jev_first
+# 判断（decide）だけの設定
 engine               = ""            # 単一エンジンを直接指定したいときだけ使う（mode より優先）
 confidence_threshold = 0.7           # これ未満なら通知せず保留
 question_set         = "next_action" # questions.toml のセット名
@@ -52,19 +56,20 @@ question_set         = "next_action" # questions.toml のセット名
 # --- 運用方針の定義 ---------------------------------------------------------
 # engines は上から順に試し、失敗（APIキー無し・通信不可など）したら次へ退避する。
 # 最後は必ず rule_based を置き、判断が止まらないようにする。
-# planner は人間向けの説明・計画を誰が書くか: "claude" か "offline"。
+# planner は人間向けの説明・計画を誰が書くか: "offline"（LLM なし）/ "claude" / "openai_compat"。
+# 接続先とキーは [llm.planner]（空なら [llm.<provider>]）で決まる。未知の値はエラー。
 
-[decision.modes.rule_first]
+[policy.modes.rule_first]
 description = "ルールベース先行。費用ゼロで運用し、feedback を貯めてから LLM へ移行する"
 engines     = ["rule_based"]
 planner     = "offline"
 
-[decision.modes.llm_first]
+[policy.modes.llm_first]
 description = "判断も Claude に任せる。校正データが貯まるまで confidence は参考値として扱う"
 engines     = ["claude", "rule_based"]
 planner     = "claude"
 
-[decision.modes.jev_first]
+[policy.modes.jev_first]
 description = "Jev で小さな判断、LLM は説明・計画。Jev が使えなければ Claude → ルールベース"
 engines     = ["jev", "claude", "rule_based"]
 planner     = "claude"
@@ -79,7 +84,7 @@ api_key_env = "ANTHROPIC_API_KEY"
 model      = ""                  # 空なら [llm.<provider>] の model を使う
 max_tokens = 4000
 effort     = "high"              # 説明・計画は高 effort（claude のみ使う）
-# 提供元は [decision.modes.*] の planner で決まる（claude / openai_compat / offline）。
+# 提供元は [policy.modes.*] の planner で決まる（claude / openai_compat / offline）。
 # claude 以外を使う場合、接続先とキーをここで指定する（空なら [llm.<provider>] を使う）
 base_url    = ""
 api_key_env = ""
