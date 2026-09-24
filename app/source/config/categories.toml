@@ -1,0 +1,53 @@
+# プロセス名・ウィンドウタイトルから activity_type / project を推定するルール。
+# 評価順は title_rules → process_rules。最初に一致したものを採用する（LLM は使わない）。
+
+default_activity_type = "other"
+
+# --- ウィンドウタイトルのキーワード（最優先） ---
+[[title_rules]]
+contains      = ["Teams 会議", "Zoom Meeting", "Google Meet", "Webex"]
+activity_type = "meeting"
+
+[[title_rules]]
+contains      = ["GitHub", "Issues ·", "Pull Request", "Merge request"]
+activity_type = "review"
+
+[[title_rules]]
+contains      = ["YouTube", "ニュース"]
+activity_type = "break"
+
+# --- プロセス名 ---
+[[process_rules]]
+match         = ["Code.exe", "devenv.exe", "pycharm64.exe", "WindowsTerminal.exe", "powershell.exe", "cmd.exe"]
+activity_type = "coding"
+
+[[process_rules]]
+match         = ["EXCEL.EXE", "WINWORD.EXE", "POWERPNT.EXE", "AcroRd32.exe", "Acrobat.exe"]
+activity_type = "document"
+
+[[process_rules]]
+match         = ["OUTLOOK.EXE", "Teams.exe", "ms-teams.exe", "slack.exe", "Zoom.exe"]
+activity_type = "communication"
+
+[[process_rules]]
+match         = ["chrome.exe", "msedge.exe", "firefox.exe"]
+activity_type = "research"
+
+[[process_rules]]
+match         = ["explorer.exe", "Taskmgr.exe"]
+activity_type = "admin"
+
+# --- タイトルからプロジェクトを推定 ---
+# contains … ウィンドウタイトル・プロセス名に対して部分一致させるキーワード（表記は自由）
+# project  … 出力する案件名。**案件フォルダ 10_projects/<prefix>_<yyyymm>_<suffix> の
+#            suffix（= pjt: ラベルと同じ値）に揃える**こと。
+#            ここが揃っていないと、PCログ由来の活動と tasks.md 由来のタスクが
+#            別案件として集計され、判断も decisions.md へ書き出せない。
+#            認識されている案件名は `python app/cf.py init` で確認できる。
+[[project_rules]]
+contains = ["contextflow", "work-context"]
+project  = "contextflow"
+
+[[project_rules]]
+contains = ["サンプル案件", "sample-project"]
+project  = "sample_project"

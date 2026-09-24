@@ -1,0 +1,658 @@
+/* contextflow ローカル GUI 用スタイル。フレームワーク不使用の素のCSS。 */
+
+:root {
+  --bg: #f5f5f2;
+  --fg: #1c1c1c;
+  --card-bg: #ffffff;
+  --border: #d9d9d3;
+  --muted: #6b6b63;
+  --accent: #2a6f3f;
+  --danger: #a6342a;
+  --gap-bg: #f0ead6;
+  --input-bg: #ffffff;
+  --btn-bg: #eeeee8;
+  --btn-fg: #1c1c1c;
+  --btn-disabled: #cfcfc7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b18;
+    --fg: #e9e9e2;
+    --card-bg: #262622;
+    --border: #3c3c36;
+    --muted: #a3a398;
+    --accent: #5fbf7f;
+    --danger: #e07a6c;
+    --gap-bg: #3a3626;
+    --input-bg: #1f1f1c;
+    --btn-bg: #33332d;
+    --btn-fg: #e9e9e2;
+    --btn-disabled: #4a4a43;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  max-width: 860px;
+  margin-inline: auto;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Yu Gothic UI", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.date-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+button {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  color: var(--btn-disabled);
+  border-color: var(--btn-disabled);
+}
+
+input,
+select {
+  background: var(--input-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 8px;
+  margin-bottom: 6px;
+  vertical-align: top;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.banner.success {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.banner.error {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.banner button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+#work-form {
+  display: flex;
+  /* ボタンの下端を入力欄の下端に合わせる（中央揃えだとボタンが浮く） */
+  align-items: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 入力欄のまとまり。span のままだと行ボックスの下に余白がつき、
+   下端の位置が font 依存でぶれるため、flex にして label を直接並べる */
+#work-inputs {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+/* label には margin-bottom: 6px があり、入力欄の下端はその 6px ぶん上にある。
+   同じ下余白を与えて、ボタン・注記の下端を入力欄の下端と揃える */
+#record-toggle-btn,
+#running-today-hint,
+#change-form button,
+#decision-form button,
+#decide-btn,
+#plan-btn {
+  margin-bottom: 6px;
+}
+
+/* 入力欄とボタンの縦幅を揃える（操作欄・変化・判断）。
+   button と input は既定のフォントが異なり、余白だけ合わせても高さがずれるため、
+   フォントと高さを明示して一致させる。上の margin-bottom と合わせて上下端もそろう。 */
+#work-form input,
+#work-form select,
+#record-toggle-btn,
+#change-form input,
+#change-form select,
+#change-form button,
+#decision-form input,
+#decision-form select,
+#decision-form button,
+#decide-set,
+#decide-btn,
+#plan-btn,
+.calendar-row select,
+.calendar-row button {
+  box-sizing: border-box;
+  height: 26px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.timeline-list,
+#change-list,
+#decision-list,
+.raw-log-list,
+.calendar-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.timeline-row .time {
+  min-width: 100px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.timeline-row .info {
+  flex: 1;
+}
+
+.timeline-row.gap {
+  background: var(--gap-bg);
+  cursor: pointer;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.timeline-row.gap:hover {
+  filter: brightness(0.95);
+}
+
+.row-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+#change-list li,
+#decision-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+#change-list li span,
+#decision-list li span {
+  flex: 1;
+}
+
+.raw-log-list li {
+  padding: 3px 4px;
+  border-bottom: 1px dashed var(--border);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+/* 俯瞰図（縦軸=案件・種別、横軸=時間）。横に長くなるので、この枠の中で横スクロールする */
+.chart-scroll {
+  overflow-x: auto;
+  margin: 0 0 10px;
+}
+
+.chart-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.chart-table th,
+.chart-table td {
+  border: 1px solid var(--border);
+}
+
+.chart-table th {
+  padding: 2px 5px;
+  color: var(--muted);
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+/* 行見出しは横スクロールしても残す */
+.chart-table th.row-head {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  text-align: left;
+  background: var(--card-bg);
+}
+
+.chart-table td {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+}
+
+/* 刻みが細かいほど列が増えるため、セル幅を狭める */
+.chart-table.step-30 td { width: 12px; }
+.chart-table.step-5 td { width: 6px; }
+
+/* 時の変わり目。細かい刻みでも何時ごろか追えるようにする */
+.chart-table td.hour-start {
+  border-left: 1px solid var(--muted);
+}
+
+.chart-table th.hour-head {
+  border-left: 1px solid var(--muted);
+}
+
+.chart-controls {
+  margin: 0 0 4px;
+}
+
+.chart-cell {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+}
+
+.chart-table td.chart-total {
+  width: auto;
+  padding: 0 5px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 固定高さ＋スクロール（1日ぶんの行数で画面が伸び続けないようにする） */
+#timeline-list {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+/* 固定高さ＋スクロール（生ログは1日で数千件になりうるため） */
+#raw-log-list {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+/* 固定高さ＋スクロール（直近7日分の予定が並ぶため） */
+#calendar-list {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.calendar-row .time {
+  min-width: 190px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.calendar-row .info {
+  flex: 1;
+}
+
+.calendar-row .calendar-flag {
+  color: var(--muted);
+}
+
+/* 未分類の行の目印。新しい配色は作らず、空白（gap）と同じ背景を流用する */
+.calendar-row.unlabeled {
+  background: var(--gap-bg);
+}
+
+.raw-log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.raw-log-row:hover {
+  filter: brightness(0.95);
+}
+
+.raw-log-row.selected {
+  background: var(--gap-bg);
+}
+
+.raw-log-row input[type="checkbox"] {
+  margin-top: 2px;
+  flex: none;
+  /* チェックの反映は行クリック側でまとめて行うため、直接操作の対象にはしない */
+  pointer-events: none;
+}
+
+.raw-log-text {
+  flex: 1;
+  min-width: 0;             /* flex item が縮まず横スクロールになるのを防ぐ */
+  overflow-wrap: anywhere;  /* 横に長いタイトルでも折り返す */
+}
+
+.raw-log-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 6px;
+}
+
+#raw-log-select-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0;
+}
+
+.panel {
+  background: var(--gap-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  margin: 8px 0;
+}
+
+.panel .actions {
+  display: flex;
+  gap: 6px;
+}
+
+.raw-log-area {
+  margin-top: 8px;
+}
+
+#raw-log-panel {
+  margin-top: 6px;
+}
+
+#build-btn {
+  margin-top: 4px;
+}
+
+/* 収集・記録の状態表示。何が動いているのかを一目で分かるようにする */
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.2rem;
+  align-items: center;
+  margin: 0 0 0.8rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+/* 生ログ収集と作業記録は、それぞれ1行を占める。
+   横並びにすると幅次第で折り返し位置が変わり、どちらの説明か読み取りにくくなるため
+   （注意書きの .status-hint と同じ考え方） */
+.status-item {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.status-dot.on {
+  color: var(--accent);
+}
+
+.status-dot.off {
+  color: var(--muted);
+}
+
+.status-detail {
+  color: var(--muted);
+}
+
+.status-hint {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+
+.status-hint code {
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.status-item button {
+  margin-left: 0.3rem;
+}
+
+/* 収集中の「閉じると止まる」注意書き。押し間違いで一日ぶん失わないよう目立たせる */
+.status-hint.warning {
+  color: var(--danger);
+}
+
+.raw-log-list .empty {
+  color: var(--muted);
+  font-style: normal;
+}
+
+/* 設定パネル（種別・案件のラベル/表示/並び順、タスク候補） */
+#settings-details > summary {
+  cursor: pointer;
+  font-weight: bold;
+  padding: 2px 0;
+}
+
+.settings-body {
+  margin-top: 8px;
+}
+
+.settings-body h3 {
+  font-size: 13px;
+  margin: 14px 0 4px;
+}
+
+.settings-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row .settings-key {
+  min-width: 140px;
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.settings-label-input {
+  flex: 1;
+  min-width: 100px;
+}
+
+.settings-add-project {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+#settings-task-textarea {
+  display: block;
+  width: 100%;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* 現在の状態カード（判断エンジン向けスナップショットの表示） */
+.state-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.state-row {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.state-key {
+  flex: 0 0 7em;
+  color: var(--muted);
+}
+
+.state-val {
+  flex: 1 1 auto;
+}
+
+.state-val ul {
+  margin: 2px 0 0;
+  padding-left: 1.2em;
+}
+
+/* 判断・計画（現在の状態カード内、GET /api/decide/info・POST /api/decide・POST /api/plan） */
+.decide-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.decide-row {
+  padding: 3px 2px;
+  border-bottom: 1px dashed var(--border);
+}
+
+.decide-row.held {
+  color: var(--muted);
+}
+
+#plan-result pre {
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+/* Claude API 送信ありの注意書き（status-hint.warning と同じ配色を流用） */
+.hint.warning {
+  color: var(--danger);
+}

@@ -1,0 +1,98 @@
+# Jev風 Decision Engine へ投げる質問セット。
+# 1回のリクエストに複数の問いをまとめる。
+
+[next_action]
+description = "今この瞬間、作業を続けるべきかの判断"
+
+[[next_action.questions]]
+key         = "continue_current_task"
+type        = "noul"
+instruction = "現在のタスクを継続すべきか"
+
+[[next_action.questions]]
+key         = "next_task_type"
+type        = "choice"
+instruction = "次に取るべき行動はどれか"
+choices     = ["continue", "quick_task", "research", "break"]
+
+[[next_action.questions]]
+key         = "urgency"
+type        = "score"
+instruction = "今の状況の緊急度"
+min         = 1
+max         = 5
+
+[gap_fill]
+description = "PC操作が無い空白時間の推定"
+
+[[gap_fill.questions]]
+key         = "gap_activity_type"
+type        = "choice"
+instruction = "空白時間の活動種別として最も確からしいものはどれか"
+choices     = ["meeting", "thinking", "break", "communication", "unknown"]
+
+[[gap_fill.questions]]
+key         = "gap_is_work"
+type        = "noul"
+instruction = "その空白時間は仕事だったか"
+
+[task_triage]
+description = "タスク1件ごとの仕分け"
+
+[[task_triage.questions]]
+key         = "is_blocked"
+type        = "noul"
+instruction = "このタスクは現在ブロックされているか"
+
+[[task_triage.questions]]
+key         = "do_today"
+type        = "noul"
+instruction = "このタスクを今日やるべきか"
+
+[[task_triage.questions]]
+key         = "priority"
+type        = "score"
+instruction = "このタスクの優先度（1が最優先）"
+min         = 1
+max         = 5
+
+[week_outlook]
+description = "今後の見通し（過去N日の実績と今後N日の予定・締切から判断）"
+
+[[week_outlook.questions]]
+key         = "capacity_is_tight"
+type        = "noul"
+instruction = "今後の予定・締切に対して、過去の実績から見積もった可処分時間が足りているか（upcoming_planned_min と過去実績から算出した可処分時間を比較）"
+
+[[week_outlook.questions]]
+key         = "focus_project"
+type        = "choice"
+instruction = "今後いちばん時間を割くべき案件はどれか（upcoming_deadlines の先頭・upcoming_items の偏り・current_project から判断）"
+choices     = ["current", "deadline", "planned"]
+
+[[week_outlook.questions]]
+key         = "week_risk"
+type        = "score"
+instruction = "今後の予定どおりに進まない恐れの大きさ（upcoming_deadlines の近さ・blocked の有無・予定の詰まり具合から判断）"
+min         = 1
+max         = 5
+
+[deadline_risk]
+description = "締切の見通し（upcoming_deadlines の先頭を主な材料に判断）"
+
+[[deadline_risk.questions]]
+key         = "deadline_at_risk"
+type        = "noul"
+instruction = "最も近い締切が守れない恐れがあるか（締切までの日数・blocked の有無・過去N日の当該案件への投下時間から判断）"
+
+[[deadline_risk.questions]]
+key         = "needs_reschedule"
+type        = "noul"
+instruction = "予定の組み替えが要るか（締切遵守の恐れと今後の予定の詰まり具合の両方から判断）"
+
+[[deadline_risk.questions]]
+key         = "deadline_pressure"
+type        = "score"
+instruction = "締切の切迫度（最も近い締切までの日数から判断）"
+min         = 1
+max         = 5

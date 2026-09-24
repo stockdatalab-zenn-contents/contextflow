@@ -1,0 +1,197 @@
+# contextflow 基本設定
+# パスはプロジェクトルートからの相対パス（絶対パスも可）
+
+[paths]
+database     = "app/data/contextflow.db"   # ローカル SQLite
+state_json   = "app/data/state.json"       # Context Builder の出力
+export_dir   = "app/data/export"           # 日次サマリ等の Markdown 出力先
+context_repo = "app/data/context_repo"     # GitHub へ push する長期コンテキストの作業コピー
+calendar_dir = "app/data/calendar"         # ここに置いた .ics を取り込む
+
+[collector]
+interval_sec       = 5     # 前面ウィンドウの採取間隔
+idle_threshold_sec = 180   # これ以上無操作なら idle 扱い
+flush_every        = 12    # 何件ごとに SQLite へ書き込むか
+flush_max_wait_sec = 10    # 件数がたまらなくても、この秒数を超えたら書き出す
+                           # （収集中でも画面の再読み込みで直近の生ログを見られるようにするため）
+
+[privacy]
+drop_window_title = false  # true にするとタイトル自体を保存しない
+
+# ウィンドウタイトルのマスク（正規表現 → 置換文字列）
+[[privacy.mask_patterns]]
+pattern     = '[\w.+-]+@[\w-]+\.[\w.]+'
+replacement = "<mail>"
+
+[[privacy.mask_patterns]]
+pattern     = 'https?://[^\s]+'
+replacement = "<url>"
+
+[sessionizer]
+merge_gap_sec         = 60    # 同一プロセスでこの秒数以内なら同じ session に連結
+min_duration_sec      = 30    # これ未満の session は破棄
+merge_by_process_only = false # タイトル違いも同一 session にまとめるか
+
+[features]
+deep_work_min_sec     = 1500  # 25分以上の連続作業を deep work とみなす
+context_switch_min_sec = 60   # 60秒以上の滞在をスイッチ1回と数える
+
+[context]
+# Current State が見る範囲。当日は today、それ以外をここで決める
+past_days     = 7   # 過去何日ぶんの傾向を見るか（対象日は含まない）
+upcoming_days = 7   # 今後何日ぶんの予定・締切を見るか
+
+[decision]
+# 運用方針。ここ1行を書き換えるだけで、判断エンジンと Planner の組み合わせが切り替わる
+mode                 = "rule_first"  # rule_first | llm_first | jev_first
+engine               = ""            # 単一エンジンを直接指定したいときだけ使う（mode より優先）
+confidence_threshold = 0.7           # これ未満なら通知せず保留
+question_set         = "next_action" # questions.toml のセット名
+
+# --- 運用方針の定義 ---------------------------------------------------------
+# engines は上から順に試し、失敗（APIキー無し・通信不可など）したら次へ退避する。
+# 最後は必ず rule_based を置き、判断が止まらないようにする。
+# planner は人間向けの説明・計画を誰が書くか: "claude" か "offline"。
+
+[decision.modes.rule_first]
+description = "ルールベース先行。費用ゼロで運用し、feedback を貯めてから LLM へ移行する"
+engines     = ["rule_based"]
+planner     = "offline"
+
+[decision.modes.llm_first]
+description = "判断も Claude に任せる。校正データが貯まるまで confidence は参考値として扱う"
+engines     = ["claude", "rule_based"]
+planner     = "claude"
+
+[decision.modes.jev_first]
+description = "Jev で小さな判断、LLM は説明・計画。Jev が使えなければ Claude → ルールベース"
+engines     = ["jev", "claude", "rule_based"]
+planner     = "claude"
+
+[llm.claude]
+model       = "claude-opus-5"
+max_tokens  = 2000
+effort      = "low"              # 小さな判断なので低 effort
+api_key_env = "ANTHROPIC_API_KEY"
+
+[llm.planner]
+model      = "claude-opus-5"
+max_tokens = 4000
+effort     = "high"              # 説明・計画は高 effort
+
+[llm.openai_compat]
+base_url    = "http://localhost:11434/v1"   # Ollama 等
+model       = "qwen2.5:14b"
+api_key_env = "OPENAI_API_KEY"
+
+[llm.jev]
+base_url    = "https://api.typesafe.ai/v1"
+model       = "jev-1"
+api_key_env = "JEV_API_KEY"
+
+[context_repo]
+# 長期コンテキスト（仕事管理リポジトリ）の構成。
+# 既定値は、連携先の仕事管理リポジトリの構成に合わせている。
+#   work_repo  = 既存の仕事管理リポジトリに合わせる（フォルダを勝手に作らない）
+#   standalone = contextflow 専用の構成を自分で作る（リポジトリが無いとき用）
+layout = "work_repo"
+
+projects_dir   = "10_projects"   # 案件フォルダ <prefix>_<yyyymm>_<suffix>
+knowledge_dir  = "20_knowledge"
+inbox_dir      = "00_inbox"
+tasks_file     = "tasks.md"      # 案件フォルダ内。Issue 同期の正本（読み取り専用）
+decisions_file = "decisions.md"  # 案件フォルダ内。判断・変化の追記先
+project_readme = "README.md"
+
+# 制約を書いたファイルの相対パス。空なら読まない
+constraints_file = ""
+
+# 案件名として使うキー。folder=10_projects 配下の名前、suffix=pjt: ラベルと同じ値
+project_key = "suffix"           # suffix | prefix | folder
+
+# このリポジトリは「具体的な実施日時はOutlookで管理し、本リポジトリでは管理しない」方針のため、
+# 日次の時間集計は既定で書き出さない。必要なら true にする
+write_daily = false
+daily_dir   = "20_knowledge/90_daily_activity"
+
+[ui]
+# 画面での表示に関する設定。保存値（英語）は変えず、表示ラベルだけを日本語にする。
+# 画面から変更した内容は app/data/ui_options.json へ保存され、ここの値へ上書き適用される。
+
+# 選択肢に出さない種別。既定値であり、画面の設定で保存した内容があればそちらが優先される。
+# planning は thinking へ集約したため既定では出さない（過去データの値は残る）
+hidden_activity_types = ["planning"]
+
+# 種別の表示ラベル。キーは ActivityType の値（DB に保存される値）
+# 質問セットの表示名。保存値（英語のセット名）は変えない
+[ui.question_set_labels]
+next_action   = "次の行動"
+gap_fill      = "空白時間の推定"
+task_triage   = "タスクの仕分け"
+week_outlook  = "今後の見通し"
+deadline_risk = "締切の見通し"
+
+# choice 型の選択肢の表示名。キーは質問の key。
+# ここに無い質問は [ui.activity_labels] を試し、それも無ければ保存値をそのまま出す
+# （gap_activity_type の選択肢は種別そのものなので activity_labels で日本語になる）
+[ui.choice_labels.next_task_type]
+continue   = "いまの作業を続ける"
+quick_task = "軽い作業"
+research   = "情報収集"
+break      = "休憩"
+
+[ui.choice_labels.focus_project]
+current  = "現在の案件"
+deadline = "締切が近い案件"
+planned  = "予定が多い案件"
+
+[ui.activity_labels]
+coding        = "コーディング"
+research      = "情報収集"
+meeting       = "会議"
+document      = "資料作成"
+communication = "連絡"
+thinking      = "思考"
+planning      = "思考"          # thinking へ集約。過去データ用に残す
+review        = "レビュー"
+admin         = "事務"
+break         = "休憩"
+other         = "その他"
+unknown       = "不明"
+
+[calendar]
+# 取得元。outlook = classic Outlook を COM 経由で読む（pywin32 が必要）
+#         ics     = paths.calendar_dir に置いた .ics を読む
+# outlook が使えない場合は警告を出して ics へ退避する
+provider        = "outlook"
+fetch_days      = 7      # 今日から何日先までの予定を取るか（直近1週間）
+fetch_days_back = 1      # 何日前まで取り直すか（前日に入った変更の取りこぼし対策）
+
+# 実績の材料にすると時間集計が壊れるものを除く
+skip_all_day   = true    # 終日予定（祝日・〇〇週間など）
+skip_declined  = true    # 自分が辞退した予定
+skip_cancelled = true    # キャンセル済みの予定
+skip_free      = true    # 予定表で「空き時間」扱いの予定
+
+# 件名に privacy.mask_patterns を適用する（件名は日次サマリへ出力されるため）
+mask_subject = true
+
+[github]
+# リポジトリ未作成のうちは enabled = false のままでよい（context_repo にローカル蓄積される）。
+# 作成後は enabled / repo / remote を埋めるだけで、Issue 取り込みと push が有効になる。
+enabled    = false
+repo       = ""                # 例: owner/work-context（Issue API 用）
+token_env  = "GITHUB_TOKEN"
+remote     = ""                # 例: git@github.com:owner/work-context.git（push 用）
+branch     = "main"
+auto_push  = false             # github export のあと自動で commit & push するか
+issue_sync = true              # repo と token が揃っていれば Issue を取り込む
+
+# Issue のラベル体系。仕事管理リポジトリの定義に合わせる。
+# contextflow は Issue を読むだけで、起票・更新・クローズは一切行わない
+# （Issue は tasks.md の写しであり、変更は承認制の同期処理が担うため）。
+[github.issue_labels]
+status_prefix   = "status:"    # todo / doing / waiting / cancelled / done
+when_prefix     = "when:"      # today / this-week / this-month
+priority_prefix = "priority:"  # high / normal / low
+project_prefix  = "pjt:"       # 案件ラベル

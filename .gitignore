@@ -1,0 +1,34 @@
+# データ（生ログを含むため Git へは入れない）
+app/data/
+
+# ログ
+*.log
+
+# 秘密情報（APIキー等を置く場合）
+.env
+.env.*
+
+# その他
+99_old/
+references/*
+# 連携先リポジトリの構成サンプルだけは公開する。
+# references/ をディレクトリごと除外すると git が中を走査せず、この行が効かない
+!references/sample_work_repo/
+docs/DECISION.md
+docs/MODEL_SELECTION.md
+docs/MODIFICATION_HISTORY.md
+
+# エディタ
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

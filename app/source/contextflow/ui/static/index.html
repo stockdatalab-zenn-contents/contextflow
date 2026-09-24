@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="cf-token" content="<!--CF_TOKEN-->">
+<title>contextflow</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div id="banner" class="banner" hidden>
+  <span id="banner-text"></span>
+  <button id="banner-close" type="button">&times;</button>
+</div>
+
+<h1>contextflow</h1>
+
+<header class="date-nav">
+  <button id="prev-day" type="button">&#9664;</button>
+  <input type="date" id="date-input">
+  <button id="next-day" type="button">&#9654;</button>
+  <button id="today-btn" type="button">今日</button>
+</header>
+
+<section id="status-strip" class="status-strip">
+  <span class="status-item">
+    <span id="collector-dot" class="status-dot">&#9675;</span>
+    <span id="collector-label">生ログ収集：確認中</span>
+    <span id="collector-detail" class="status-detail"></span>
+    <button id="collector-start-btn" type="button" class="row-btn" hidden>収集を開始</button>
+    <button id="collector-stop-btn" type="button" class="row-btn" hidden>収集を停止</button>
+  </span>
+  <span class="status-item">
+    <span id="record-dot" class="status-dot">&#9675;</span>
+    <span id="record-label">作業記録：確認中</span>
+    <span id="record-detail" class="status-detail"></span>
+  </span>
+  <span id="collector-hint" class="status-hint" hidden>
+    終日動かすなら、画面を閉じても続く <code>python app/cf.py collect</code> を別ウィンドウで使う
+  </span>
+  <span id="collector-elsewhere-hint" class="status-hint" hidden>
+    別のウィンドウで収集中（この画面からは停止できない）
+  </span>
+  <span id="collector-close-warning" class="status-hint warning" hidden>
+    この画面を閉じると収集も止まる。終日動かすなら <code>python app/cf.py collect</code> を使う
+  </span>
+  <span id="record-warn" class="status-hint warning" hidden>
+    8時間以上 記録中。止め忘れの可能性
+  </span>
+  <span id="today-status-hint" class="status-hint" hidden>
+    収集・記録は今日に対して動く。開始・停止すると今日に記録される
+  </span>
+</section>
+
+<section id="running-section" class="card">
+  <form id="work-form">
+    <!-- 記録中は入力欄を非活性にする（隠さないので、ボタンの位置は動かない） -->
+    <span id="work-inputs">
+      <label>案件 <select id="start-project" class="project-select"></select></label>
+      <label>種別 <select id="start-type" class="type-select"></select></label>
+      <label>タスク <input type="text" id="start-task" list="task-suggestions" placeholder="タスク"></label>
+    </span>
+    <button id="record-toggle-btn" type="submit">記録を開始</button>
+    <span id="running-today-hint" class="status-detail" hidden>（今日の記録。停止すると今日に記録される）</span>
+  </form>
+</section>
+
+<section class="card">
+  <h2>タイムライン</h2>
+  <!-- 俯瞰図：縦軸に案件・種別、横軸に時間。いつ何をしたかを一目で見る -->
+  <div id="timeline-chart" hidden>
+    <p class="hint">縦が案件・種別、横が時間。色の濃さは、その時間帯のうち何分を占めたか。</p>
+    <div class="chart-controls">
+      <label>刻み
+        <select id="chart-step">
+          <option value="60">1時間</option>
+          <option value="30">30分</option>
+          <option value="5">5分</option>
+        </select>
+      </label>
+      <label>並び
+        <select id="chart-sort">
+          <option value="settings">設定の並び順</option>
+          <option value="total">合計時間順</option>
+        </select>
+      </label>
+    </div>
+    <div class="chart-scroll">
+      <table id="chart-table" class="chart-table"></table>
+    </div>
+  </div>
+
+  <ul id="timeline-list" class="timeline-list"></ul>
+
+  <div id="activity-form" class="panel" hidden>
+    <h3 id="activity-form-title">記録</h3>
+    <label>開始 <input type="time" id="af-start" required></label>
+    <label>終了 <input type="time" id="af-end" required></label>
+    <label>案件 <select id="af-project" class="project-select"></select></label>
+    <label>種別 <select id="af-type" class="type-select" required></select></label>
+    <label>タスク <input type="text" id="af-task" list="task-suggestions"></label>
+    <div class="actions">
+      <button id="af-submit" type="button">記録</button>
+      <button id="af-cancel" type="button">キャンセル</button>
+    </div>
+  </div>
+
+  <div class="raw-log-area">
+    <p class="hint">生ログは既定で非表示（ウィンドウタイトルに顧客名等の機微情報が含まれ得るため）。</p>
+    <button id="raw-log-toggle" type="button">生ログを表示 &#9662;</button>
+    <div id="raw-log-panel" hidden>
+      <p id="raw-log-summary" class="hint"></p>
+      <div id="raw-log-controls" class="raw-log-controls">
+        <span id="raw-log-select-status">選択: なし</span>
+        <button id="raw-log-record-btn" type="button" disabled>選択した生ログを記録</button>
+        <button id="raw-log-clear-btn" type="button">選択を解除</button>
+      </div>
+      <ul id="raw-log-list" class="raw-log-list"></ul>
+    </div>
+  </div>
+
+  <p class="hint">
+    編集・予定の取り込み・生ログの圧縮のあとは、突き合わせ直さないとタイムラインに反映されない。
+  </p>
+  <button id="build-btn" type="button" title="予定・PCログ・手入力を突き合わせ直して、この日のタイムラインを作り直す">
+    タイムラインを作り直す
+  </button>
+</section>
+
+<section class="card" id="calendar-card" hidden>
+  <h2>予定の分類</h2>
+  <p class="hint">
+    カレンダーから取った予定は、既定ではすべて「会議」として扱う。
+    ここで種別を付けると、次の取得でも保たれ、タイムラインの確定や空白時間の推定にも反映される。
+  </p>
+  <p id="calendar-summary" class="hint"></p>
+  <ul id="calendar-list" class="calendar-list"></ul>
+  <p id="calendar-no-uid" class="hint" hidden></p>
+</section>
+
+<section class="card">
+  <h2>変化</h2>
+  <ul id="change-list"></ul>
+  <form id="change-form">
+    <input type="hidden" id="ch-id" value="">
+    <label>時刻 <input type="time" id="ch-time"></label>
+    <label>案件 <select id="ch-project" class="project-select"></select></label>
+    <label>説明 <input type="text" id="ch-description" required></label>
+    <button id="ch-submit" type="submit">記録</button>
+    <button id="ch-cancel" type="button" hidden>キャンセル</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>判断</h2>
+  <ul id="decision-list"></ul>
+  <form id="decision-form">
+    <input type="hidden" id="de-id" value="">
+    <label>時刻 <input type="time" id="de-time"></label>
+    <label>案件 <select id="de-project" class="project-select"></select></label>
+    <label>判断 <input type="text" id="de-decision" required></label>
+    <label>理由 <input type="text" id="de-reason"></label>
+    <button id="de-submit" type="submit">記録</button>
+    <button id="de-cancel" type="button" hidden>キャンセル</button>
+  </form>
+</section>
+
+<section class="card" id="state-card">
+  <h2>現在の状態</h2>
+  <p class="hint">
+    タイムライン・変化・判断・タスクから、判断エンジンに渡す「現在の状態」をまとめて保存する
+    （<code>python app/cf.py state</code> と同じ処理）。
+    時間の材料は確定したタイムラインなので、記録を足したときは先に [タイムラインを作り直す] を押す。
+  </p>
+  <div class="state-actions">
+    <button id="state-run-btn" type="button">今の状態をまとめる</button>
+    <span id="state-generated" class="status-detail"></span>
+  </div>
+  <p id="state-empty" class="hint" hidden>この日の状態はまだまとめていない。</p>
+  <div id="state-body" hidden></div>
+  <p id="state-path" class="hint" hidden></p>
+
+  <div id="decide-box">
+    <h3>判断・計画</h3>
+    <p class="hint">
+      今の状態をまとめ直してから、型付きの判断（<code>decide</code>）と説明・計画（<code>plan</code>）を作る。
+    </p>
+    <div class="decide-controls">
+      <label>質問セット <select id="decide-set"></select></label>
+      <button id="decide-btn" type="button">判断する</button>
+      <button id="plan-btn" type="button">計画を作る</button>
+      <span id="decide-engine" class="status-detail"></span>
+    </div>
+    <!-- 文言は decideInfo から組み立てる（運用方針で問い合わせ先が変わるため） -->
+    <p id="decide-llm-warn" class="hint warning" hidden></p>
+    <div id="decide-result" hidden></div>
+    <div id="plan-result" hidden></div>
+  </div>
+</section>
+
+<datalist id="task-suggestions"></datalist>
+
+<section class="card">
+  <details id="settings-details">
+    <summary>設定</summary>
+    <div class="settings-body">
+      <h3>案件</h3>
+      <p class="hint">ラベル・表示/非表示・並び順を編集する。保存値（案件のキー）は変わらない。</p>
+      <ul id="settings-project-list" class="settings-list"></ul>
+      <div class="settings-add-project">
+        <label>追加する案件名 <input type="text" id="settings-project-new" placeholder="表示名"></label>
+        <button id="settings-project-add-btn" type="button">追加</button>
+      </div>
+      <p class="hint">追加した案件はリポジトリには作らない。表示用の案件として扱う。</p>
+
+      <h3>種別</h3>
+      <p class="hint">ラベル・表示/非表示・並び順を編集する。保存値（英語の種別）は変わらない。</p>
+      <ul id="settings-type-list" class="settings-list"></ul>
+
+      <h3>タスクの候補</h3>
+      <p class="hint">1行に1件。タスク入力の候補として出る（自由入力も可能）。</p>
+      <textarea id="settings-task-textarea" rows="6"></textarea>
+
+      <div class="settings-actions">
+        <button id="settings-save-btn" type="button">保存</button>
+        <button id="settings-cancel-btn" type="button">取り消し</button>
+      </div>
+    </div>
+  </details>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

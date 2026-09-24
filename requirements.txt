@@ -1,0 +1,13 @@
+# 基本機能は標準ライブラリのみで動く。以下はいずれも任意。
+
+# Claude API を Decision Engine / Planner として使う場合
+#   config.toml の [decision] mode を llm_first / jev_first にしたとき必要
+anthropic>=1.0.0
+
+# classic Outlook から予定を取得する場合（Windows 専用）
+#   config.toml の [calendar] provider = "outlook" のとき必要
+pywin32>=306
+
+# IANA タイムゾーンDB。.ics の TZID を正しく解決したい場合
+#   未導入でもローカル tz として解釈するため動作は止まらない
+tzdata>=2024.1

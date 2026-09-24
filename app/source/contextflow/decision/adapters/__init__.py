@@ -1,0 +1,1 @@
+"""decision.adapters パッケージ。"""

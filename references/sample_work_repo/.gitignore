@@ -1,0 +1,7 @@
+# 同期処理の作業領域
+.sync/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
