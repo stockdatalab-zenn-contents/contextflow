@@ -21,9 +21,12 @@ data を書き換える形にし、実ファイルは絶対に書き換えない
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import unittest
 from datetime import date, datetime, timezone
+from pathlib import Path
 from unittest import mock
 
 from tests.conftest_path import add_source_path
@@ -273,6 +276,134 @@ class PlannerOfflineFallbackTests(unittest.TestCase):
             text = planner.make_plan(state, decisions)
 
         self.assertEqual(text, expected)
+
+
+# ---------------------------------------------------------------------------
+# AppConfig.secret: APIキー等をファイル（既定 .env）からも読めるようにした分の単体テスト。
+# tempfile.TemporaryDirectory の外には書き込まない（app/data・実ファイルの .env は触らない）。
+# 環境変数を触るテストは mock.patch.dict(os.environ, ...) で必ず復元する。
+# ---------------------------------------------------------------------------
+
+
+def _config_with_all_secret_keys(root: Path, secrets_file: str = ".env") -> AppConfig:
+    """4箇所の api_key_env / token_env をひととおり持つ AppConfig を作る。"""
+    data = {
+        "paths": {"secrets_file": secrets_file},
+        "llm": {
+            "claude": {"api_key_env": "ANTHROPIC_API_KEY"},
+            "jev": {"api_key_env": "JEV_API_KEY"},
+            "openai_compat": {"api_key_env": "OPENAI_API_KEY"},
+        },
+        "github": {"token_env": "GITHUB_TOKEN"},
+    }
+    return AppConfig(data=data, root=root)
+
+
+class AppConfigSecretFileTests(unittest.TestCase):
+    """AppConfig.secret: ファイルからの読み込み・書式の解釈・優先順位を検証する。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _write_env_file(self, text: str, filename: str = ".env") -> None:
+        (self.root / filename).write_text(text, encoding="utf-8")
+
+    def test_reads_value_from_file(self) -> None:
+        # 既定の .env（cfg.root 直下）からキーを読めること
+        self._write_env_file("ANTHROPIC_API_KEY=sk-ant-from-file\n")
+        config = _config_with_all_secret_keys(self.root)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            self.assertEqual(config.secret("llm.claude.api_key_env"), "sk-ant-from-file")
+
+    def test_strips_double_and_single_quotes(self) -> None:
+        # 値を囲む " と ' の両方を外すこと
+        self._write_env_file(
+            'JEV_API_KEY="quoted-value"\n'
+            "OPENAI_API_KEY='single-quoted-value'\n"
+        )
+        config = _config_with_all_secret_keys(self.root)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("JEV_API_KEY", None)
+            os.environ.pop("OPENAI_API_KEY", None)
+            self.assertEqual(config.secret("llm.jev.api_key_env"), "quoted-value")
+            self.assertEqual(config.secret("llm.openai_compat.api_key_env"), "single-quoted-value")
+
+    def test_strips_leading_export(self) -> None:
+        # シェル用の "export KEY=..." をそのまま貼っても読めること
+        self._write_env_file("export OPENAI_API_KEY=exported-value\n")
+        config = _config_with_all_secret_keys(self.root)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENAI_API_KEY", None)
+            self.assertEqual(config.secret("llm.openai_compat.api_key_env"), "exported-value")
+
+    def test_strips_surrounding_whitespace_on_name_and_value(self) -> None:
+        # 名前・値の前後の空白を落とすこと（"=" の前後にスペースがあっても読める）
+        self._write_env_file("  GITHUB_TOKEN = spaced-value  \n")
+        config = _config_with_all_secret_keys(self.root)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GITHUB_TOKEN", None)
+            self.assertEqual(config.secret("github.token_env"), "spaced-value")
+
+    def test_ignores_comment_blank_and_no_equals_lines(self) -> None:
+        # "#" 行・空行・"=" の無い行は無視し、有効な行だけ読めること
+        self._write_env_file(
+            "# コメント行\n"
+            "\n"
+            "この行には等号が無いので無視される\n"
+            "ANTHROPIC_API_KEY=sk-ant-from-file\n"
+        )
+        config = _config_with_all_secret_keys(self.root)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            self.assertEqual(config.secret("llm.claude.api_key_env"), "sk-ant-from-file")
+
+    def test_environment_variable_takes_priority_over_file(self) -> None:
+        # 同名の環境変数があれば、ファイルの値より優先されること
+        self._write_env_file("ANTHROPIC_API_KEY=sk-ant-from-file\n")
+        config = _config_with_all_secret_keys(self.root)
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-from-env"}):
+            self.assertEqual(config.secret("llm.claude.api_key_env"), "sk-ant-from-env")
+
+    def test_returns_none_when_file_missing(self) -> None:
+        # ファイルが存在しない場合は例外にせず None を返すこと
+        config = _config_with_all_secret_keys(self.root)  # .env を書いていない
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            self.assertIsNone(config.secret("llm.claude.api_key_env"))
+
+    def test_secrets_file_path_is_configurable(self) -> None:
+        # [paths] secrets_file で場所を変えられること（既定 .env 以外の名前も読める）
+        (self.root / "secrets").mkdir()
+        self._write_env_file("ANTHROPIC_API_KEY=sk-ant-from-file\n", filename="secrets/creds.env")
+        config = _config_with_all_secret_keys(self.root, secrets_file="secrets/creds.env")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+            self.assertEqual(config.secret("llm.claude.api_key_env"), "sk-ant-from-file")
+            # 既定の .env 側には何も無いので、無関係なキーは None のまま
+            self.assertIsNone(config.secret("github.token_env"))
+
+    def test_all_four_api_key_paths_read_from_file(self) -> None:
+        # claude / jev / openai_compat / github の4箇所すべてで効くこと
+        self._write_env_file(
+            "ANTHROPIC_API_KEY=sk-ant-value\n"
+            "JEV_API_KEY=jev-value\n"
+            "OPENAI_API_KEY=openai-value\n"
+            "GITHUB_TOKEN=ghp-value\n"
+        )
+        config = _config_with_all_secret_keys(self.root)
+        env_keys = ("ANTHROPIC_API_KEY", "JEV_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for key in env_keys:
+                os.environ.pop(key, None)
+            self.assertEqual(config.secret("llm.claude.api_key_env"), "sk-ant-value")
+            self.assertEqual(config.secret("llm.jev.api_key_env"), "jev-value")
+            self.assertEqual(config.secret("llm.openai_compat.api_key_env"), "openai-value")
+            self.assertEqual(config.secret("github.token_env"), "ghp-value")
 
 
 if __name__ == "__main__":

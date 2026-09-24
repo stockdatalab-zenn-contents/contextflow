@@ -3,6 +3,7 @@
 
 [paths]
 database     = "app/data/contextflow.db"   # ローカル SQLite
+secrets_file = ".env"                      # APIキー等の置き場（Git 管理外）。環境変数があればそちらが優先
 state_json   = "app/data/state.json"       # Context Builder の出力
 export_dir   = "app/data/export"           # 日次サマリ等の Markdown 出力先
 context_repo = "app/data/context_repo"     # GitHub へ push する長期コンテキストの作業コピー

@@ -14,12 +14,43 @@
 | キー | 既定値 | 内容 |
 | --- | --- | --- |
 | `database` | `app/data/contextflow.db` | ローカル SQLite。生ログの置き場所 |
+| `secrets_file` | `.env` | APIキー等の置き場。相対パスはプロジェクトルート基準 |
 | `state_json` | `app/data/state.json` | Context Builder の出力 |
 | `export_dir` | `app/data/export` | 日次サマリ等の Markdown 出力先 |
 | `context_repo` | `app/data/context_repo` | 仕事管理リポジトリの**場所**（中の構成は `[context_repo]` で指定） |
 | `calendar_dir` | `app/data/calendar` | ここに置いた `.ics` を取り込む |
 
 相対パスはプロジェクトルート基準。絶対パスも指定可能。
+
+### 秘密情報の扱い
+
+`AppConfig.secret("llm.claude.api_key_env")` のように、`api_key_env` /
+`token_env` で指定した環境変数名から APIキー等の値を取得する。探す順は次のとおり。
+
+1. **同名の環境変数**
+2. **秘密情報ファイル**（`[paths] secrets_file`。既定はプロジェクトルート直下の `.env`）
+
+環境変数を先に見るのは、一時的な上書き（別のキーで試す・CI で渡す）を効かせるため。
+どちらも無ければ `None` を返す（**キーが無くても落とさない**。使えないエンジンは
+警告を出して次へ退避する既存の挙動のまま）。
+
+`api_key_env` / `token_env` の値は**環境変数名であり、秘密情報ファイル側のキー名でもある**
+（`[llm.claude] api_key_env = "ANTHROPIC_API_KEY"` なら、環境変数も `.env` 内のキーも
+`ANTHROPIC_API_KEY`）。
+
+秘密情報ファイルの形式（`KEY=VALUE`）。
+
+- `#` で始まる行と空行は無視する
+- 先頭の `export ` は取り除く（シェル用の書き方をそのまま貼れる）
+- 値を囲む `"` `'` は取り除く
+- 名前・値の前後の空白は落とす
+- `=` を含まない行は無視する
+- ファイルが無い・読めない場合は空として扱う（落とさない）
+
+値は**ログに出さない**。
+
+テンプレートはリポジトリ直下の `.env.example`（コミット対象）。
+`.env.example` を `.env` へコピーして使う。`.env` 自体は `.gitignore` で除外済み。
 
 ### [collector]
 

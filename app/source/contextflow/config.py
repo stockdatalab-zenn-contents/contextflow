@@ -32,6 +32,8 @@ class AppConfig:
     data: dict[str, Any] = field(default_factory=dict)
     root: Path = field(default_factory=project_root)
     config_dir: Path = CONFIG_DIR
+    # 秘密情報ファイルの読み込み結果。None は「まだ読んでいない」
+    _secrets_cache: Optional[dict[str, str]] = field(default=None, repr=False, compare=False)
 
     def get(self, dotted_key: str, default: Any = None) -> Any:
         """'llm.claude.model' のようなドット区切りで値を取得。"""
@@ -62,9 +64,70 @@ class AppConfig:
         return CONFIG_DIR / filename
 
     def secret(self, env_key_path: str) -> Optional[str]:
-        """'llm.claude.api_key_env' のような設定から環境変数値を取得。"""
+        """'llm.claude.api_key_env' のような設定から APIキー等の値を取得。
+
+        探す順は次のとおり。どちらも無ければ None（キーが無くても落とさない）。
+
+        1. 同名の環境変数
+        2. 秘密情報ファイル（`[paths] secrets_file`。既定は `.env`）
+
+        環境変数を先に見るのは、一時的な上書き（別のキーで試す・CI で渡す）を
+        効かせるため。ファイルへ書いておけば環境変数の設定は要らない。
+        """
         env_name = self.get(env_key_path)
-        return os.environ.get(env_name) if env_name else None
+        if not env_name:
+            return None
+        from_env = os.environ.get(env_name)
+        if from_env:
+            return from_env
+        return self._secrets().get(env_name)
+
+    def _secrets(self) -> dict[str, str]:
+        """秘密情報ファイルを読む（1度読んだら保持する）。
+
+        ファイルが無い・読めない場合は空のまま返す。設定漏れで落とさないため。
+        """
+        if self._secrets_cache is None:
+            self._secrets_cache = _read_secrets_file(self._secrets_path())
+        return self._secrets_cache
+
+    def _secrets_path(self) -> Path:
+        """秘密情報ファイルの場所。未設定なら プロジェクトルート直下の `.env`。"""
+        value = self.get("paths.secrets_file") or ".env"
+        candidate = Path(value)
+        return candidate if candidate.is_absolute() else (self.root / candidate)
+
+
+def _read_secrets_file(path: Path) -> dict[str, str]:
+    """`KEY=VALUE` 形式の秘密情報ファイルを読む。
+
+    - `#` で始まる行と空行は無視する
+    - 先頭の `export ` は取り除く（シェル用の書き方をそのまま貼れるように）
+    - 値を囲む `"` `'` は取り除く
+    - 値は**ログに出さない**。読めなければ空の dict を返す
+
+    tomllib を使わないのは、この形式が最も貼り付けやすく、
+    `.gitignore` の慣例（`.env`）とも合うため。
+    """
+    result: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return result
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        name, _, value = line.partition("=")
+        name = name.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("\"", "'"):
+            value = value[1:-1]
+        if name:
+            result[name] = value
+    return result
 
 
 @dataclass

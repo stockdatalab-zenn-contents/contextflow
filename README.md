@@ -58,14 +58,19 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-APIキーを環境変数に設定する。
+APIキーは `.env` ファイルへ書く。
 
 ```powershell
-setx ANTHROPIC_API_KEY "sk-ant-..."   # llm_first / jev_first の Claude 用
-setx JEV_API_KEY "..."                # jev_first のとき
+copy .env.example .env
+notepad .env   # 必要な行のコメント（#）を外し、値を入れる
 ```
 
+`.env` は Git に入らない（`.gitignore` で除外済み）。置き場所を変えたい場合は
+`config.toml` の `[paths] secrets_file` を書き換える。
+
 キーが無くても落ちない。使えないエンジンは警告を出して次へ退避する。
+
+設定キーの詳細は `docs/20260923_config_reference.md`。
 
 ### 5. 仕事管理リポジトリと連携する場合（任意・後からでよい）
 
@@ -110,8 +115,9 @@ remote    = "git@github.com:owner/work-context.git"   # push 用
 auto_push = true                                      # export 後に自動で commit & push
 ```
 
+トークンは `.env` へ書く（`GITHUB_TOKEN=ghp_...`）。
+
 ```powershell
-setx GITHUB_TOKEN "ghp_..."
 python app/cf.py github status      # 設定状況と不足しているものを表示
 python app/cf.py github push        # commit して push
 ```
